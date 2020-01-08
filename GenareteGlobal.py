@@ -43,7 +43,7 @@ class Telemetry:
 
 class State:
     def __init__(self):  # todo pass step taker
-        self.heightfield = numpy.zeros((image_size, image_size), dtype=int)
+        self.heitfield = numpy.zeros((image_size, image_size), dtype=int)
         self.lit_maps = {direction: numpy.ones((image_size, image_size), dtype=int) for direction in directions}
 
     def get_lit_map(self, i):
@@ -55,7 +55,7 @@ class State:
     def update_lit_maps(self, i, j):
 
         def update_pixel(i, j, shadow_height, direction):
-            pixel_height = self.heightfield[i][j]
+            pixel_height = self.heitfield[i][j]
             if shadow_height < pixel_height or shadow_height == 0:
                 shadow_height = pixel_height
                 self.lit_maps[direction][i][j] = 1
@@ -86,22 +86,23 @@ class State:
                 for j in range(image_size):
                     next_shadow_height = update_pixel(i, j, next_shadow_height, direction)
 
-        pass  # todo
-
-    def take_step_random(self):
+    def take_step_random(self, telemetry):
         # x = numpy.reshape(x, (image_size, image_size))
 
         while True:
             i = random.randint(0, image_size-1)
             j = random.randint(0, image_size-1)
             is_add = random.randint(0, 1) == 0
-            new_val = self.heightfield[i][j] + 5 if is_add else self.heightfield[i][j] - 5
+            new_val = self.heitfield[i][j] + 5 if is_add else self.heitfield[i][j] - 5
             if 0 <= new_val <= 10:
-                self.heightfield[i][j] = new_val
+                self.heitfield[i][j] = new_val
+                start = time.time()
                 self.update_lit_maps(i, j)
+                telemetry.update_get_lit_map(time.time() - start)
                 break
 
-    def take_step_all(self):
+
+    def take_step_all(self, telemetry):
         pass  # todo
         '''
         class MyTakeStepAll:
@@ -128,8 +129,9 @@ class State:
                 return image_size*image_size*2
         '''
 
-    def take_step(self):
-        self.take_step_random()
+    def take_step(self, telemetry):
+        self.take_step_random(telemetry)
+        return self
 
 
 def main():
@@ -155,18 +157,16 @@ def save_res(stet, images, fig):
 
 
 def get_images():
-    images = []
-    for i in range(num_of_images):
         #images.append(numpy.asarray([[1 if i % 5 == 0 else 0 for i in range(image_size)] for _ in range(image_size)]))
         #  images.append(numpy.random.rand(image_size, image_size))
-        images.append(numpy.array(Image.open("img{0}.jpg" .format(i)).
-                                  convert("L").crop((0, 0, image_size, image_size)))/255)
 
+    get_im = lambda direction: numpy.array(Image.open("img{0}.jpg" .format(direction)).
+                                  convert("L").crop((0, 0, image_size, image_size)))/255
+    images = {direction: get_im(direction) for direction in directions}
     return images
 
 
 def get_f_to_minimize(images):
-    edges = []
     gradient_kernel = numpy.asarray([[0, 1, 0],
                                     [1, -4, 1],
                                     [0, 1, 0]])
@@ -179,19 +179,18 @@ def get_f_to_minimize(images):
 
     gaus_grad_kernel = signal.convolve2d(gaussian_kernel, gradient_kernel, mode="same")
     norma = lambda im1, im2: numpy.sum((im1-im2)**2)
+    edges = {direction: signal.convolve2d(images[direction], gaus_grad_kernel, mode="same") for direction in directions}
 
-    for image in images:
-        edges.append(signal.convolve2d(image, gaus_grad_kernel, mode="same"))
 
     def f(state):
         # print("eveluating f")
         res = 0
         # heitfield = numpy.reshape(heitfield, (image_size, image_size))
-        for i in range(num_of_images):
-            lit_map = state.get_lit_map(i)
-            res += norma(signal.convolve2d(lit_map, gaussian_kernel, mode="same"), images[i])
+        for direction in directions:
+            lit_map = state.get_lit_map(direction)
+            res += norma(signal.convolve2d(lit_map, gaussian_kernel, mode="same"), images[direction])
 
-            res += norma(signal.convolve2d(lit_map, gaus_grad_kernel, mode="same"), edges[i])*1.5
+            res += norma(signal.convolve2d(lit_map, gaus_grad_kernel, mode="same"), edges[direction])*1.5
 
         res += norma(signal.convolve2d(state.heitfield, gradient_kernel, mode="same"),
                      numpy.zeros((image_size, image_size)))*0.001
@@ -204,8 +203,8 @@ def my_optimize(f, images, fig):
     inital_guss = State()
 
     def callback(iteration_num, state, telemetry):
-        if iteration_num % 50 == 0:  # todo this
-            # save_res(state, images, fig)
+        if iteration_num % 10000 == 0:  # todo this
+            save_res(state, images, fig)
             print(telemetry)
     '''
     def no_minimizer(fun, x0, args, jac, hess, hessp,
@@ -219,7 +218,7 @@ def my_optimize(f, images, fig):
     #res = optimize.basinhopping(f, x0=inital_guss, take_step=mytakestep, disp=True, minimizer_kwargs=minimizer_kwargs, niter=10**7, niter_success=1000).x
     '''
 
-    res = simulated_annealing(f, 10**7, 500, inital_guss, callback)
+    res = simulated_annealing(f, 10**7, 100000, inital_guss, callback)
     return res
 
 
@@ -235,7 +234,7 @@ def simulated_annealing(f, niter, niter_success, x0, callback):
             break
         start_iteration_time = time.time()
         temp = niter - iteration_num - 1  # todo, check this
-        candidate_state = state.copy().take_step()
+        candidate_state = state.copy().take_step(telemetry)
         take_step_time = time.time()
         candidate_val = f(candidate_state)
         evel_f_time = time.time()
