@@ -43,11 +43,11 @@ class Telemetry:
 
 class State:
     def __init__(self):  # todo pass step taker
-        self.heitfield = numpy.zeros((image_size, image_size), dtype=int)
+        self.heightfield = numpy.zeros((image_size, image_size), dtype=int)
         self.lit_maps = {direction: numpy.ones((image_size, image_size), dtype=int) for direction in directions}
 
-    def get_lit_map(self, i):
-        return self.lit_maps[i]
+    def get_lit_map(self, direction):
+        return self.lit_maps[direction]
 
     def copy(self):
         return copy.deepcopy(self)
@@ -55,7 +55,7 @@ class State:
     def update_lit_maps(self, i, j):
 
         def update_pixel(i, j, shadow_height, direction):
-            pixel_height = self.heitfield[i][j]
+            pixel_height = self.heightfield[i][j]
             if shadow_height < pixel_height or shadow_height == 0:
                 shadow_height = pixel_height
                 self.lit_maps[direction][i][j] = 1
@@ -93,9 +93,9 @@ class State:
             i = random.randint(0, image_size-1)
             j = random.randint(0, image_size-1)
             is_add = random.randint(0, 1) == 0
-            new_val = self.heitfield[i][j] + 5 if is_add else self.heitfield[i][j] - 5
+            new_val = self.heightfield[i][j] + 5 if is_add else self.heightfield[i][j] - 5
             if 0 <= new_val <= 10:
-                self.heitfield[i][j] = new_val
+                self.heightfield[i][j] = new_val
                 start = time.time()
                 self.update_lit_maps(i, j)
                 telemetry.update_get_lit_map(time.time() - start)
@@ -147,11 +147,12 @@ def main():
 
 def save_res(stet, images, fig):
     for i in range(num_of_images):
+        direction = directions[i]
         fig.add_subplot(num_of_images, 2, 2 * i + 1)
-        plt.imshow(stet.get_lit_map(i), cmap='gray')
+        plt.imshow(stet.get_lit_map(direction), cmap='gray')
 
         fig.add_subplot(num_of_images, 2, 2 * i + 2)
-        plt.imshow(images[i], cmap='gray')
+        plt.imshow(images[direction], cmap='gray')
     plt.savefig("res.pdf")
     numpy.save("res_heightfield.np", stet.heightfield)
 
@@ -185,14 +186,14 @@ def get_f_to_minimize(images):
     def f(state):
         # print("eveluating f")
         res = 0
-        # heitfield = numpy.reshape(heitfield, (image_size, image_size))
+        # heightfield = numpy.reshape(heightfield, (image_size, image_size))
         for direction in directions:
             lit_map = state.get_lit_map(direction)
             res += norma(signal.convolve2d(lit_map, gaussian_kernel, mode="same"), images[direction])
 
             res += norma(signal.convolve2d(lit_map, gaus_grad_kernel, mode="same"), edges[direction])*1.5
 
-        res += norma(signal.convolve2d(state.heitfield, gradient_kernel, mode="same"),
+        res += norma(signal.convolve2d(state.heightfield, gradient_kernel, mode="same"),
                      numpy.zeros((image_size, image_size)))*0.001
         return res
 
