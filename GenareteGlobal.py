@@ -14,10 +14,9 @@ import multiprocessing
 # todo any number of images
 
 image_size = 500
-# directions = ["-y", "+y", "-x", "+x"]
-directions = ["+y", "+x"]
-# directions = ["+x"]
-num_of_images = len(directions)
+
+num_of_images = 4
+directions = ["+x", "+y", "-x", "-y"][:num_of_images]
 light_angle = math.radians(30)
 
 
@@ -28,6 +27,7 @@ class Telemetry:
         self.eval_f_duration = 0
         self.get_lit_map = 0
         self.num_of_mesurments = 0
+        self.total_eval_f_duration = 0
 
     def update_messurment(self, start_iteration_time, take_step_time, evel_f_time, end_iteration_time):
         self.iteration_duration += end_iteration_time - start_iteration_time
@@ -38,11 +38,15 @@ class Telemetry:
     def update_get_lit_map(self, duration):
         self.get_lit_map += duration
 
+    def update_total_eval_f_duration(self, duration):
+        self.total_eval_f_duration += duration
+
     def __str__(self):
-        return "telemetry iter:{0:03f} step:{1:03f} eval={2:03f} lit_map={3:03f} niter={4}".format(
+
+        return "\ttelemetry iter:{:03f} step:{:03f} eval={:03f} total_eval={:03f} lit_map={:03f} niter={}".format(
             self.iteration_duration / self.num_of_mesurments, self.take_step_duration / self.num_of_mesurments,
-            self.eval_f_duration / self.num_of_mesurments, self.get_lit_map / self.num_of_mesurments,
-            self.num_of_mesurments)
+            self.eval_f_duration / self.num_of_mesurments, self.total_eval_f_duration / self.num_of_mesurments,
+            self.get_lit_map / self.num_of_mesurments, self.num_of_mesurments)
 
 
 class State:
@@ -137,14 +141,14 @@ class State:
 class StateEvaluator:
     def __init__(self, images):
         self.gradient_kernel = numpy.asarray([[0, 1, 0],
-                                         [1, -4, 1],
-                                         [0, 1, 0]])
+                                             [1, -4, 1],
+                                             [0, 1, 0]])
 
         self.gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
-                                         [4, 16, 26, 16, 4],
-                                         [7, 26, 41, 26, 7],
-                                         [4, 16, 26, 16, 4],
-                                         [1, 4, 7, 4, 1]]) / 273
+                                             [4, 16, 26, 16, 4],
+                                             [7, 26, 41, 26, 7],
+                                             [4, 16, 26, 16, 4],
+                                             [1, 4, 7, 4, 1]]) / 273
 
         self.gaus_grad_kernel = signal.convolve2d(self.gaussian_kernel, self.gradient_kernel, mode="same")
 
@@ -153,18 +157,22 @@ class StateEvaluator:
                       for direction in directions}
 
     def val_for_direction(self, lit_map, direction):
+        start = time.time()
         res = 0
         res += StateEvaluator.norma(signal.convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
         res += StateEvaluator.norma(signal.convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
-        return res
+        return res, time.time() - start
 
     def val_for_heightfield(self, heightfield):
-        return StateEvaluator.norma(signal.convolve2d(heightfield, self.gradient_kernel, mode="same"),
-                     numpy.zeros((image_size, image_size))) * 0.001
+        start = time.time()
+        return StateEvaluator.norma(signal.convolve2d(heightfield, self.gradient_kernel, mode="same")) * 0.001, \
+               time.time() - start
 
     @staticmethod
-    def norma(im1, im2):
-        return numpy.sum((im1 - im2) ** 2)
+    def norma(im1, im2=None):
+        if im2 is not None:
+            return numpy.sum((im1 - im2) ** 2)
+        return numpy.sum(im1 ** 2)
 
 
 def main():
@@ -175,7 +183,7 @@ def main():
 
     save_res(heightfield, images, fig)
     plt.show()
-    #  create_stl_global(heightfield)
+    create_stl_global(heightfield)
 
 
 def save_res(stet, images, fig):
@@ -195,81 +203,89 @@ def get_images():
     #  images.append(numpy.random.rand(image_size, image_size))
 
     get_im = lambda direction: numpy.array(Image.open("img{0}.jpg".format(direction)).
-                                           convert("L").crop((0, 0, image_size, image_size))) / 255
+                                           convert("L").resize((image_size, image_size))) / 255
     images = {direction: get_im(direction) for direction in directions}
     return images
 
 
-def f_to_minimize(pool, state_evaluator, state):
-
+def f_to_minimize_concurrent(pool, state_evaluator, state, telemetry):
+    res = calc_times = 0
     args = [(state.get_lit_map(direction), direction) for direction in directions]
 
     async_res = pool.starmap_async(state_evaluator.val_for_direction, args)
-    res = state_evaluator.val_for_heightfield(state.heightfield)
-    res += sum(async_res.get())
+    evaluations = itertools.chain([state_evaluator.val_for_heightfield(state.heightfield)], async_res.get())
 
+    for evaluation in evaluations:
+        res += evaluation[0]
+        calc_times += evaluation[1]
+
+    if telemetry is not None:
+        telemetry.update_total_eval_f_duration(calc_times)
+    return res
+
+
+def f_to_minimize_non_concurrent(pool, state_evaluator, state, telemetry):
+    res = calc_times = 0
+    args = [(state.get_lit_map(direction), direction) for direction in directions]
+    evaluations = itertools.chain(itertools.starmap(state_evaluator.val_for_direction, args),
+                                  [state_evaluator.val_for_heightfield(state.heightfield)])
+
+    for evaluation in evaluations:
+        res += evaluation[0]
+        calc_times += evaluation[1]
+    if telemetry is not None:
+        telemetry.update_total_eval_f_duration(calc_times)
     return res
 
 
 def my_optimize(state_evaluator, images, fig):
     def callback(iteration_num, state, telemetry):
-        if iteration_num % 50 == 0:  # todo this
-
+        if iteration_num % 1000 == 0:  # todo this
             save_res(state, images, fig)
             print(telemetry)
 
-    '''
-    def no_minimizer(fun, x0, args, jac, hess, hessp,
-                      bounds, constraints,
-                      callback, *options):
-        return optimize.OptimizeResult(x=x0, success=True, fun=fun(x0))
-
-    minimizer_kwargs = {"method": no_minimizer}
-
-    # todo constant temp
-    #res = optimize.basinhopping(f, x0=inital_guss, take_step=mytakestep, disp=True, minimizer_kwargs=minimizer_kwargs, niter=10**7, niter_success=1000).x
-    '''
-
-    res = simulated_annealing(state_evaluator, 10 ** 7, 100000, State(), callback)
-    return res
+    with multiprocessing.Pool(processes=num_of_images) as pool:
+        return simulated_annealing(state_evaluator, f_to_minimize_non_concurrent, 10 ** 7, 10 ** 6, State(),
+                                   callback, pool)
 
 
-def simulated_annealing(state_evaluator, niter, niter_success, state, callback):
-    telemetry = Telemetry()
-    pool = multiprocessing.Pool(processes=num_of_images)
+def simulated_annealing(state_evaluator, f, niter, niter_success, state, callback, pool):
 
-    val = f_to_minimize(pool, state_evaluator, state)
+    val = f(pool, state_evaluator, state, None)
     global_min_val = val
     global_min_state = state
-    success_iter = 0
+    min_time_at_top = 0
+    telemetry = Telemetry()
 
     for iteration_num in range(niter):
-        if niter_success < success_iter:
+        if niter_success < min_time_at_top:
             break
         start_iteration_time = time.time()
-        temp = niter - iteration_num - 1  # todo, check this
+        temp = (niter - iteration_num)/niter
         candidate_state = state.copy().take_step(telemetry)
         take_step_time = time.time()
-        candidate_val = f_to_minimize(pool, state_evaluator, candidate_state)
+        candidate_val = f(pool, state_evaluator, candidate_state, telemetry)
         evel_f_time = time.time()
+        metopolis_test = math.exp((val - candidate_val) / temp)
 
-        if candidate_val < val or random.random() <= math.exp((val - candidate_val) / temp):
+        print("iteration={} val={} candidate_val={} metopolis={:.2f} min={} time_at_top={} temp={:.2f}".
+              format(iteration_num, int(val), int(candidate_val), metopolis_test, int(global_min_val), min_time_at_top, temp))
+
+        if random.random() <= metopolis_test:
             state = candidate_state
             val = candidate_val
-        print("iteration={0} val={1} global val={2} success_iter={3}".
-              format(iteration_num, int(val), int(global_min_val), success_iter))
 
         if val < global_min_val:
             global_min_val = val
             global_min_state = state
-            success_iter = 0
+            min_time_at_top = 0
 
         else:
-            success_iter += 1
+            min_time_at_top += 1
 
         telemetry.update_messurment(start_iteration_time, take_step_time, evel_f_time, time.time())
 
-        callback(iteration_num, state, telemetry)
+        callback(iteration_num, global_min_state, telemetry)
     return global_min_state
 
 
