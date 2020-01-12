@@ -13,7 +13,7 @@ import multiprocessing
 
 # todo any number of images
 
-image_size = 500
+image_size = 300  # max in article 200/0.5=400
 
 num_of_images = 4
 directions = ["+x", "+y", "-x", "-y"][:num_of_images]
@@ -63,9 +63,11 @@ class State:
     def update_lit_pixel(self, i, j, shadow_height, direction):
         pixel_height = self.heightfield[i][j]
         if shadow_height < pixel_height or shadow_height == 0:
+            # lit
             shadow_height = pixel_height
             self.lit_maps[direction][i][j] = 1
         else:
+            # shadowed
             self.lit_maps[direction][i][j] = 0
 
         return shadow_height - 1 if shadow_height > 0 else 0
@@ -97,9 +99,9 @@ class State:
         while True:
             i = random.randint(0, image_size - 1)
             j = random.randint(0, image_size - 1)
-            is_add = random.randint(0, 1) == 0
-            new_val = self.heightfield[i][j] + 5 if is_add else self.heightfield[i][j] - 5
-            if 0 <= new_val <= 10:
+            change = random.randint(-5, 5)
+            new_val = self.heightfield[i][j] + change
+            if change != 0 and 0 <= new_val <= 10:
                 self.heightfield[i][j] = new_val
                 start = time.time()
                 self.update_lit_maps(i, j)
@@ -178,24 +180,26 @@ class StateEvaluator:
 def main():
     images = get_images()
     state_evaluator = StateEvaluator(images)
-    fig = plt.figure(figsize=(10, 10))
-    heightfield = my_optimize(state_evaluator, images, fig)
+    heightfield = my_optimize(state_evaluator, images)
 
-    save_res(heightfield, images, fig)
+    save_res(heightfield, images)
     plt.show()
     create_stl_global(heightfield)
 
 
-def save_res(stet, images, fig):
+def save_res(state, images):
+    fig, axs = plt.subplots(nrows=num_of_images, ncols=2, figsize=(10, 10),  # todo reuse fig
+                            subplot_kw={'xticks': [], 'yticks': []})
+
     for i in range(num_of_images):
         direction = directions[i]
-        fig.add_subplot(num_of_images, 2, 2 * i + 1)
-        plt.imshow(stet.get_lit_map(direction), cmap='gray')
-
-        fig.add_subplot(num_of_images, 2, 2 * i + 2)
-        plt.imshow(images[direction], cmap='gray')
+        axs[i, 0].imshow(state.get_lit_map(direction), cmap='gray')
+        axs[i, 1].imshow(images[direction], cmap='gray')
+        axs[i, 0].set_title(direction)
+    plt.tight_layout()
     plt.savefig("res.pdf")
-    numpy.save("res_heightfield.np", stet.heightfield)
+    plt.close(fig)
+    numpy.save("res_heightfield.np", state.heightfield)
 
 
 def get_images():
@@ -203,7 +207,7 @@ def get_images():
     #  images.append(numpy.random.rand(image_size, image_size))
 
     get_im = lambda direction: numpy.array(Image.open("img{0}.jpg".format(direction)).
-                                           convert("L").resize((image_size, image_size))) / 255
+                                           convert("L").resize((image_size, image_size), )) / 255
     images = {direction: get_im(direction) for direction in directions}
     return images
 
@@ -238,18 +242,18 @@ def f_to_minimize_non_concurrent(pool, state_evaluator, state, telemetry):
     return res
 
 
-def my_optimize(state_evaluator, images, fig):
+def my_optimize(state_evaluator, images):
     def callback(iteration_num, state, telemetry):
         if iteration_num % 1000 == 0:  # todo this
-            save_res(state, images, fig)
+            save_res(state, images)
             print(telemetry)
 
     with multiprocessing.Pool(processes=num_of_images) as pool:
-        return simulated_annealing(state_evaluator, f_to_minimize_non_concurrent, 10 ** 7, 10 ** 6, State(),
-                                   callback, pool)
+        return simulated_annealing(state_evaluator, f_to_minimize_non_concurrent, 10 ** 7, 10 ** 5, State(),
+                                   callback, pool, 1)
 
 
-def simulated_annealing(state_evaluator, f, niter, niter_success, state, callback, pool):
+def simulated_annealing(state_evaluator, f, niter, niter_success, state, callback, pool, initial_temperature):
 
     val = f(pool, state_evaluator, state, None)
     global_min_val = val
@@ -261,7 +265,7 @@ def simulated_annealing(state_evaluator, f, niter, niter_success, state, callbac
         if niter_success < min_time_at_top:
             break
         start_iteration_time = time.time()
-        temp = (niter - iteration_num)/niter
+        temp = (niter - iteration_num)/niter*initial_temperature
         candidate_state = state.copy().take_step(telemetry)
         take_step_time = time.time()
         candidate_val = f(pool, state_evaluator, candidate_state, telemetry)
