@@ -35,10 +35,7 @@ class Telemetry:
         self.get_accepted_steps_time += get_accepted_steps_time - take_step_time
         self.num_of_mesurments += 1
 
-
-
     def __str__(self):
-
         return "\ttelemetry iter:{:03f} step:{:03f} get_accepted_steps_time={:03f} niter={}".format(
             self.iteration_duration / self.num_of_mesurments, self.take_step_duration / self.num_of_mesurments,
             self.get_accepted_steps_time / self.num_of_mesurments, self.num_of_mesurments)
@@ -254,6 +251,9 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
                 copy.apply_step(step)
         return copy
 
+    niter = int(niter/num_of_cores)
+    niter_success = int(niter_success/num_of_cores)
+
     global_min_state = state
     min_time_at_top = 0
     telemetry = Telemetry()
@@ -262,11 +262,12 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
         if niter_success < min_time_at_top:
             break
         start_iteration_time = time()
+
         temp = (niter - iteration_num)/niter*initial_temperature
         candidate_steps = state.get_steps(num_of_cores)
 
         take_step_time = time()
-        state = get_accepted_steps_non_concurrent(candidate_steps, state)
+        state = get_accepted_steps(candidate_steps, state)
 
         get_accepted_steps_time = time()
 
