@@ -1,15 +1,16 @@
 import itertools
 
 from shadoPixToStl import create_stl_global
-import numpy
-import math
-from scipy import signal, optimize
-import random
+from math import radians, exp 
+from scipy.signal import convolve2d
+from random import randint, random
 from PIL import Image
 import matplotlib.pyplot as plt
-import time
-import copy
+from time import time
+from copy import deepcopy
 import multiprocessing
+import numpy
+
 
 # todo any number of images
 
@@ -17,7 +18,7 @@ image_size = 300  # max in article 200/0.5=400
 
 num_of_images = 4
 directions = ["+x", "+y", "-x", "-y"][:num_of_images]
-light_angle = math.radians(30)
+light_angle = radians(30)
 
 
 class Telemetry:
@@ -58,7 +59,7 @@ class State:
         return self.lit_maps[direction]
 
     def copy(self):
-        return copy.deepcopy(self)
+        return deepcopy(self)
 
     def update_lit_pixel(self, i, j, shadow_height, direction):
         pixel_height = self.heightfield[i][j]
@@ -97,15 +98,15 @@ class State:
 
     def take_step_random(self, telemetry):
         while True:
-            i = random.randint(0, image_size - 1)
-            j = random.randint(0, image_size - 1)
-            change = random.randint(-5, 5)
+            i = randint(0, image_size - 1)
+            j = randint(0, image_size - 1)
+            change = randint(-5, 5)
             new_val = self.heightfield[i][j] + change
             if change != 0 and 0 <= new_val <= 10:
                 self.heightfield[i][j] = new_val
-                start = time.time()
+                start = time()
                 self.update_lit_maps(i, j)
-                telemetry.update_get_lit_map(time.time() - start)
+                telemetry.update_get_lit_map(time() - start)
                 break
 
     def take_step_all(self, telemetry):
@@ -141,34 +142,34 @@ class State:
 
 
 class StateEvaluator:
+    gradient_kernel = numpy.asarray([[0, 1, 0],
+                                          [1, -4, 1],
+                                          [0, 1, 0]])
+
+    gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
+                                          [4, 16, 26, 16, 4],
+                                          [7, 26, 41, 26, 7],
+                                          [4, 16, 26, 16, 4],
+                                          [1, 4, 7, 4, 1]]) / 273
+
+    gaus_grad_kernel = convolve2d(gaussian_kernel, gradient_kernel, mode="same")
+
     def __init__(self, images):
-        self.gradient_kernel = numpy.asarray([[0, 1, 0],
-                                             [1, -4, 1],
-                                             [0, 1, 0]])
-
-        self.gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
-                                             [4, 16, 26, 16, 4],
-                                             [7, 26, 41, 26, 7],
-                                             [4, 16, 26, 16, 4],
-                                             [1, 4, 7, 4, 1]]) / 273
-
-        self.gaus_grad_kernel = signal.convolve2d(self.gaussian_kernel, self.gradient_kernel, mode="same")
-
         self.images = images
-        self.edges = {direction: signal.convolve2d(images[direction], self.gaus_grad_kernel, mode="same")
+        self.edges = {direction: convolve2d(self.images[direction], self.gaus_grad_kernel, mode="same")
                       for direction in directions}
 
     def val_for_direction(self, lit_map, direction):
-        start = time.time()
+        start = time()
         res = 0
-        res += StateEvaluator.norma(signal.convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
-        res += StateEvaluator.norma(signal.convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
-        return res, time.time() - start
+        res += StateEvaluator.norma(convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
+        res += StateEvaluator.norma(convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
+        return res, time() - start
 
     def val_for_heightfield(self, heightfield):
-        start = time.time()
-        return StateEvaluator.norma(signal.convolve2d(heightfield, self.gradient_kernel, mode="same")) * 0.001, \
-               time.time() - start
+        start = time()
+        return StateEvaluator.norma(convolve2d(heightfield, self.gradient_kernel, mode="same")) * 0.001, \
+               time() - start
 
     @staticmethod
     def norma(im1, im2=None):
@@ -204,7 +205,7 @@ def save_res(state, images):
 
 def get_images():
     # images.append(numpy.asarray([[1 if i % 5 == 0 else 0 for i in range(image_size)] for _ in range(image_size)]))
-    #  images.append(numpy.random.rand(image_size, image_size))
+    #  images.append(numpy.rand(image_size, image_size))
 
     get_im = lambda direction: numpy.array(Image.open("img{0}.jpg".format(direction)).
                                            convert("L").resize((image_size, image_size), )) / 255
@@ -249,7 +250,7 @@ def my_optimize(state_evaluator, images):
             print(telemetry)
 
     with multiprocessing.Pool(processes=num_of_images) as pool:
-        return simulated_annealing(state_evaluator, f_to_minimize_non_concurrent, 10 ** 7, 10 ** 5, State(),
+        return simulated_annealing(state_evaluator, f_to_minimize_concurrent, 10 ** 7, 10 ** 5, State(),
                                    callback, pool, 1)
 
 
@@ -264,18 +265,18 @@ def simulated_annealing(state_evaluator, f, niter, niter_success, state, callbac
     for iteration_num in range(niter):
         if niter_success < min_time_at_top:
             break
-        start_iteration_time = time.time()
+        start_iteration_time = time()
         temp = (niter - iteration_num)/niter*initial_temperature
         candidate_state = state.copy().take_step(telemetry)
-        take_step_time = time.time()
+        take_step_time = time()
         candidate_val = f(pool, state_evaluator, candidate_state, telemetry)
-        evel_f_time = time.time()
-        metopolis_test = math.exp((val - candidate_val) / temp)
+        evel_f_time = time()
+        metopolis_test = exp((val - candidate_val) / temp)
 
         print("iteration={} val={} candidate_val={} metopolis={:.2f} min={} time_at_top={} temp={:.2f}".
               format(iteration_num, int(val), int(candidate_val), metopolis_test, int(global_min_val), min_time_at_top, temp))
 
-        if random.random() <= metopolis_test:
+        if random() <= metopolis_test:
             state = candidate_state
             val = candidate_val
 
@@ -287,7 +288,7 @@ def simulated_annealing(state_evaluator, f, niter, niter_success, state, callbac
         else:
             min_time_at_top += 1
 
-        telemetry.update_messurment(start_iteration_time, take_step_time, evel_f_time, time.time())
+        telemetry.update_messurment(start_iteration_time, take_step_time, evel_f_time, time())
 
         callback(iteration_num, global_min_state, telemetry)
     return global_min_state
