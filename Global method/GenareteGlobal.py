@@ -1,5 +1,5 @@
 
-from shadoPixToStl import create_stl_global
+from shadowPixToStl import create_stl_global
 from math import radians, exp 
 from scipy.signal import convolve2d
 from random import randint, random
@@ -198,6 +198,7 @@ def parse_args():
 
 
 def save_res(state, images):
+
     fig, axs = plt.subplots(nrows=num_of_images+1, ncols=2, figsize=(10, 10),
                             subplot_kw={'xticks': [], 'yticks': []})
 

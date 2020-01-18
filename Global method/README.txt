@@ -17,7 +17,7 @@ params:
 
   -it NSTEPS
                         max num of simulated_annealing steps, default=10 ** 6,
-                        each iteration has steps according to num of cores
+                        each iteration take steps according to num of cores
   -s STOPAFTER
                         finish optimization if the global minimum candidate
                         remains the same for this number of steps,
@@ -34,9 +34,10 @@ images will be resized to the appropriate size
 
 
 outputs:
-once the program finish you will find these following files in the directory:
+once the program finish you will find these files in the directory:
 res.stl - printable 3d shadowPix file
 res_heightfield.npy - numpy file representing the heightfield
 res_images.pdf - pdf showing the input images, simulated shadowPix and heightfield
 
-every 1000'th iteration heightfield and pdf will be saved (so intermediate result could be recovered)
+every 1000'th iteration heightfield and pdf will be saved (so intermediate result could be recovered in case windows
+ updates unexpectedly)
