@@ -168,11 +168,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Create shadowPix -global method')
 
     parser.add_argument('--nImages', '-i', default=4, type=int, help='num of images to process, default=4, 0<n<=4')
-    parser.add_argument('--nPixels', '-p', default=300, type=int, help='size of the image, default=300')
+    parser.add_argument('--nPixels', '-p', default=300, type=int, help='ShadowPix size in pixels, default=300')
     parser.add_argument('--lightAngle', '-a', default=30, type=int,
                         help='illumination angle in degrees, default=30, 0<n<90')
 
-    parser.add_argument('--verbose', '-v', action='store_true', help='should print iteration data, default=True')
+    parser.add_argument('--verbose', '-v', action='store_true', help='should print iteration data, default=False')
     parser.add_argument('--concurrency', '-c', action='store_true',
                         help='should use concurrency optimization, default=False, not recommended on windows')
 
@@ -251,7 +251,7 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
         args = [(state, step, state_evaluator, temp) for step in candidate_steps]
         copy = state.copy()
         iter = pool.starmap_async(is_step_accepted, args).get() if is_concurrency and pool is not None\
-            else itertools.starmap(is_step_accepted, args)
+            else starmap(is_step_accepted, args)
 
         for res, step in iter:
             if res:

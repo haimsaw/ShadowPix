@@ -29,7 +29,6 @@ class HeightfieldToStl:
     def add_to_rectangles_list(self, req):
         # don't add rectangles with area 0
         # assuming all rectangles have straight angles
-        # todo check rew is not here
         if len(req) < 4:
             return
         if req[1] != req[0] and req[1] != req[2]:
@@ -40,6 +39,7 @@ class HeightfieldToStl:
         mash_data['vectors'][index] = triangles[0]
         mash_data['vectors'][index + len(self.rectangles)] = triangles[1]
 
+    @staticmethod
     def rectangle_to_triangles(self, p0, p1, p2, p3):
         # edges are from p0->p1, p1 -> p2, p2->p3, p3->p0
         # splitting at p0-p2
@@ -122,36 +122,6 @@ class GlobalHeightfieldToStl(HeightfieldToStl):
                                      [0, grid_width, -1],
                                      [grid_height, grid_width, -1],
                                      [grid_height, grid_width, 0]])
-
-        # todo for printer
-        self.add_to_rectangles_list([[140, 140, -50],
-                                     [140, 160, -50],
-                                     [160, 160, -50],
-                                     [160, 140, -50]])
-        # todo for printer
-
-        self.add_to_rectangles_list([[140, 140, 0],
-                                     [140, 140, -50],
-                                     [140, 160, -50],
-                                     [140, 160, 0]])
-        # todo for printer
-
-        self.add_to_rectangles_list([[140, 140, 0],
-                                     [140, 140, -50],
-                                     [160, 140, -50],
-                                     [160, 140, 0]])
-        # todo for printer
-
-        self.add_to_rectangles_list([[160, 140, 0],
-                                     [160, 140, -50],
-                                     [160, 160, -50],
-                                     [160, 160, 0]])
-        # todo for printer
-
-        self.add_to_rectangles_list([[140, 160, 0],
-                                     [140, 160, -50],
-                                     [160, 160, -50],
-                                     [160, 160, 0]])
 
         my_mash = self.rectangles_to_mash()
 
