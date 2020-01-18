@@ -109,7 +109,7 @@ class State:
         args = [(self.get_lit_map(direction), direction) for direction in directions]
         self.val = sum(chain(starmap(state_evaluator.val_for_direction, args),
                                       [state_evaluator.val_for_heightfield(self.heightfield)]))
-        return int(self.val)
+        return self.val
 
     def apply_step(self, step):
         self.heightfield[step["i"]][step["j"]] = step["height"]
@@ -237,7 +237,8 @@ def my_optimize(state_evaluator, images):
     def callback(iteration_num, state, telemetry):
         if iteration_num % 1000 == 0:
             save_res(state, images)
-            print(telemetry)
+            if is_verbose:
+                print(telemetry)
 
     if is_concurrency:
         with Pool(processes=num_of_cores) as pool:
