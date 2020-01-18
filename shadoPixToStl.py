@@ -1,5 +1,5 @@
 from stl import mesh
-import math
+from math import  radians
 import numpy
 import random
 import mpmath
@@ -13,16 +13,7 @@ pixel_size = 1
 
 # local method params
 casters_width = 0.5
-light_angle = math.radians(30)
-
-# todo heits are in s
-
-
-"""
-self.add_to_rectangles_list(
-                    [[0, 0, 0],
-                    ])
-"""
+light_angle = radians(30)
 
 
 class HeightfieldToStl:
@@ -132,6 +123,35 @@ class GlobalHeightfieldToStl(HeightfieldToStl):
                                      [grid_height, grid_width, -1],
                                      [grid_height, grid_width, 0]])
 
+        # todo for printer
+        self.add_to_rectangles_list([[140, 140, -50],
+                                     [140, 160, -50],
+                                     [160, 160, -50],
+                                     [160, 140, -50]])
+        # todo for printer
+
+        self.add_to_rectangles_list([[140, 140, 0],
+                                     [140, 140, -50],
+                                     [140, 160, -50],
+                                     [140, 160, 0]])
+        # todo for printer
+
+        self.add_to_rectangles_list([[140, 140, 0],
+                                     [140, 140, -50],
+                                     [160, 140, -50],
+                                     [160, 140, 0]])
+        # todo for printer
+
+        self.add_to_rectangles_list([[160, 140, 0],
+                                     [160, 140, -50],
+                                     [160, 160, -50],
+                                     [160, 160, 0]])
+        # todo for printer
+
+        self.add_to_rectangles_list([[140, 160, 0],
+                                     [140, 160, -50],
+                                     [160, 160, -50],
+                                     [160, 160, 0]])
 
         my_mash = self.rectangles_to_mash()
 
@@ -170,14 +190,18 @@ def test_global():
 
 
 def create_stl_global(heightfield):
-    heightfield = heightfield*mpmath.cot(light_angle)
+    print("converting heightfield to stl printable file")
+    s=mpmath.cot(light_angle)
+    heightfield = heightfield*s
     my_mash = GlobalHeightfieldToStl(heightfield).generate()
-    my_mash.save('test.stl')
-    #render(my_mash)
+    my_mash.save('res.stl')
+    # render(my_mash)
 
 
 if __name__ == "__main__":
-    test_global()
+    heightfield = numpy.load("res_heightfield.npy")
+    create_stl_global(heightfield)
+    #test_global()
     # test_local2()
 
 

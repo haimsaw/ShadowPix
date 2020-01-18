@@ -1,23 +1,17 @@
-import itertools
 
 from shadoPixToStl import create_stl_global
 from math import radians, exp 
 from scipy.signal import convolve2d
 from random import randint, random
 from PIL import Image
-import matplotlib.pyplot as plt
-from time import time, sleep
+from time import time
 from copy import deepcopy
 from multiprocessing import Pool, cpu_count
+from itertools import chain, starmap
+
 import numpy
-
-
-image_size = 350  # max in article 200/0.5=400
-
-num_of_images = 2
-num_of_cores = cpu_count()
-directions = ["+x", "+y", "-x", "-y"][:num_of_images]
-light_angle = radians(30)
+import matplotlib.pyplot as plt
+import argparse
 
 
 class Telemetry:
@@ -34,7 +28,7 @@ class Telemetry:
         self.num_of_mesurments += 1
 
     def __str__(self):
-        return "\ttelemetry iter:{:03f} step:{:03f} get_accepted_steps_time={:03f} niter={}".format(
+        return "\ttimings iter:{:03f} step:{:03f} get_accepted_steps_time={:03f} niter={}".format(
             self.iteration_duration / self.num_of_mesurments, self.take_step_duration / self.num_of_mesurments,
             self.get_accepted_steps_time / self.num_of_mesurments, self.num_of_mesurments)
 
@@ -113,9 +107,9 @@ class State:
         if self.val is not None:
             return self.val
         args = [(self.get_lit_map(direction), direction) for direction in directions]
-        self.val = sum(itertools.chain(itertools.starmap(state_evaluator.val_for_direction, args),
+        self.val = sum(chain(starmap(state_evaluator.val_for_direction, args),
                                       [state_evaluator.val_for_heightfield(self.heightfield)]))
-        return self.val
+        return int(self.val)
 
     def apply_step(self, step):
         self.heightfield[step["i"]][step["j"]] = step["height"]
@@ -158,13 +152,49 @@ class StateEvaluator:
 
 
 def main():
+    print("ShadowPix global nImages={}, directions={}, size={}px, concurrency={} nIterations={}".format(
+        num_of_images, directions, image_size, is_concurrency, num_iterations))
+
     images = get_images()
     state_evaluator = StateEvaluator(images)
     final_state = my_optimize(state_evaluator, images)
 
     save_res(final_state, images)
-    plt.show()
     create_stl_global(final_state.heightfield)
+
+
+def parse_args():
+    global num_of_cores, image_size, num_of_images, directions, is_concurrency, is_verbose, stop_after, num_iterations, temp_incline_steps
+    parser = argparse.ArgumentParser(description='Create shadowPix -global method')
+
+    parser.add_argument('--nImages', '-i', default=4, type=int, help='num of images to process, default=4, 0<n<=4')
+    parser.add_argument('--nPixels', '-p', default=300, type=int, help='size of the image, default=300')
+    parser.add_argument('--lightAngle', '-a', default=30, type=int,
+                        help='illumination angle in degrees, default=30, 0<n<90')
+
+    parser.add_argument('--verbose', '-v', action='store_true', help='should print iteration data, default=True')
+    parser.add_argument('--concurrency', '-c', action='store_true',
+                        help='should use concurrency optimization, default=False, not recommended on windows')
+
+    parser.add_argument('--nSteps', '-it', default=10 ** 6, type=int,
+                        help='max num of simulated_annealing steps, default=10 ** 6, each iteration has steps according to num of cores')
+    parser.add_argument('--stopAfter', '-s', default=10000, type=int,
+                        help='finish optimization if the global minimum candidate remains the same for this number of steps, default=10000')
+    parser.add_argument('--tempIncline', '-t', default=10000, type=int,
+                        help='reduce temp incline if the global minimum candidate remains the same for this number of steps, default=10000')
+
+    args = parser.parse_args()
+
+    num_of_cores = cpu_count()
+    image_size = args.nPixels
+    num_of_images = args.nImages
+    directions = ["+x", "+y", "-x", "-y"][:num_of_images]
+    light_angle = radians(args.lightAngle)  # pss this to stlr
+    is_concurrency = bool(args.concurrency)
+    is_verbose = bool(args.verbose)
+    stop_after = int(args.stopAfter / num_of_cores)
+    num_iterations = int(args.nSteps / num_of_cores)
+    temp_incline_steps = int(args.tempIncline / num_of_cores)
 
 
 def save_res(state, images):
@@ -176,11 +206,13 @@ def save_res(state, images):
         axs[i, 0].imshow(state.get_lit_map(direction), cmap='gray')
         axs[i, 1].imshow(images[direction], cmap='gray')
         axs[i, 0].set_title(direction)
-    axs[num_of_images, 0].imshow(state.heightfield, cmap='gray')
+    axs[num_of_images, 0].imshow(state.heightfield, cmap='gray_r')
+    axs[num_of_images, 0].set_title("heightfield")
+
     plt.tight_layout()
-    plt.savefig("res.pdf")
+    plt.savefig("res_images.pdf")
     plt.close(fig)
-    numpy.save("res_heightfield.np", state.heightfield)
+    numpy.save("res_heightfield", state.heightfield)
 
 
 def get_images():
@@ -190,45 +222,41 @@ def get_images():
     return images
 
 
+def is_step_accepted(state, step, state_evaluator, temp):
+
+    candidate = state.copy()
+    candidate.apply_step(step)
+    if temp == 0:
+        return state.get_val(state_evaluator) > candidate.get_val(state_evaluator), step
+    else:
+        return random() <= exp((state.get_val(state_evaluator) - candidate.get_val(state_evaluator)) / temp), step
+
+
 def my_optimize(state_evaluator, images):
     def callback(iteration_num, state, telemetry):
-        if iteration_num % 1000 == 0:  # todo this
+        if iteration_num % 1000 == 0:
             save_res(state, images)
             print(telemetry)
 
-    with Pool(processes=num_of_cores) as pool:
-        return simulated_annealing(state_evaluator, 10 ** 6, 5000, State(), callback, pool, 1)
-
-
-def is_step_accepted(state, step, state_evaluator, temp):
-    candidate = state.copy()
-    candidate.apply_step(step)
-    metopolis_test = exp((state.get_val(state_evaluator) - candidate.get_val(state_evaluator)) / temp)
-    return random() <= metopolis_test, step
+    if is_concurrency:
+        with Pool(processes=num_of_cores) as pool:
+            return simulated_annealing(state_evaluator, num_iterations, stop_after, State(), callback, pool, 1)
+    else:
+        return simulated_annealing(state_evaluator, num_iterations, stop_after, State(), callback, None, 1)
 
 
 def simulated_annealing(state_evaluator, niter, niter_success, state, callback, pool, initial_temperature):
 
-    def get_accepted_steps_concurrent():
+    def get_accepted_steps():
         args = [(state, step, state_evaluator, temp) for step in candidate_steps]
         copy = state.copy()
+        iter = pool.starmap_async(is_step_accepted, args).get() if is_concurrency and pool is not None\
+            else itertools.starmap(is_step_accepted, args)
 
-        for res, step in pool.starmap_async(is_step_accepted, args).get():
+        for res, step in iter:
             if res:
                 copy.apply_step(step)
         return copy
-
-    def get_accepted_steps_non_concurrent():
-        args = [(state, step, state_evaluator, temp) for step in candidate_steps]
-        copy = state.copy()
-
-        for res, step in itertools.starmap(is_step_accepted, args):
-            if res:
-                copy.apply_step(step)
-        return copy
-
-    niter = int(niter/num_of_cores)
-    niter_success = int(niter_success/num_of_cores)
 
     global_min_state = state
     min_time_at_top = 0
@@ -238,13 +266,18 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
     for iteration_num in range(niter):
 
         if niter_success < min_time_at_top:
+            print("could not fined better min for {} iterations. ".format(min_time_at_top))
+
             break
-        elif temp_incline == initial_temperature and min_time_at_top == 500:
+        elif temp_incline == initial_temperature and min_time_at_top == temp_incline_steps:
             temp_incline = initial_temperature/2
             min_time_at_top = 0
-        elif temp_incline == initial_temperature/2 and min_time_at_top == 500:
+            print("reducing temp incline to {}".format(temp_incline))
+
+        elif temp_incline == initial_temperature/2 and min_time_at_top == temp_incline_steps:
             temp_incline = 0
             min_time_at_top = 0
+            print("reducing temp incline to {}".format(temp_incline))
 
         start_iteration_time = time()
 
@@ -252,13 +285,9 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
         candidate_steps = state.get_steps(num_of_cores)
 
         take_step_time = time()
-        state = get_accepted_steps_non_concurrent()
+        state = get_accepted_steps()
 
         get_accepted_steps_time = time()
-
-        print("iteration={} val={} min={} time_at_top={} temp={:.2f}".
-              format(iteration_num, int(state.get_val(state_evaluator)), int(global_min_state.get_val(state_evaluator)),
-                     min_time_at_top, temp))
 
         if state.get_val(state_evaluator) < global_min_state.get_val(state_evaluator):
             global_min_state = state
@@ -267,11 +296,20 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
         else:
             min_time_at_top += 1
 
+        if is_verbose:
+            print("iteration={} val={} min={} global_min_time={} temp={:.2f}".
+                  format(iteration_num, int(state.get_val(state_evaluator)),
+                         int(global_min_state.get_val(state_evaluator)), min_time_at_top, temp))
+
         telemetry.update_messurment(start_iteration_time, take_step_time, get_accepted_steps_time, time())
 
         callback(iteration_num, global_min_state, telemetry)
     return global_min_state
 
 
+parse_args()
+
 if __name__ == "__main__":
+
     main()
+
