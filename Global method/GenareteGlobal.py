@@ -33,11 +33,46 @@ class Telemetry:
             self.get_accepted_steps_time / self.num_of_mesurments, self.num_of_mesurments)
 
 
+class StateEvaluator:
+    gradient_kernel = numpy.asarray([[0, 1, 0],
+                                          [1, -4, 1],
+                                          [0, 1, 0]])
+
+    gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
+                                          [4, 16, 26, 16, 4],
+                                          [7, 26, 41, 26, 7],
+                                          [4, 16, 26, 16, 4],
+                                          [1, 4, 7, 4, 1]]) / 273
+
+    gaus_grad_kernel = convolve2d(gaussian_kernel, gradient_kernel, mode="same")
+
+    def __init__(self, images):
+        self.images = images
+        self.edges = {direction: convolve2d(self.images[direction], self.gaus_grad_kernel, mode="same")
+                      for direction in directions}
+
+    def val_for_direction(self, lit_map, direction):
+        res = 0
+        res += StateEvaluator.norma(convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
+        res += StateEvaluator.norma(convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
+        return res
+
+    def val_for_heightfield(self, heightfield):
+        return StateEvaluator.norma(convolve2d(heightfield, self.gradient_kernel, mode="same")) * 0.001
+
+    @staticmethod
+    def norma(im1, im2=None):
+        if im2 is not None:
+            return numpy.sum((im1 - im2) ** 2)
+        return numpy.sum(im1 ** 2)
+
+
 class State:
-    def __init__(self):
+    def __init__(self, images):
         self.heightfield = numpy.zeros((image_size, image_size), dtype=int)
         self.lit_maps = {direction: numpy.ones((image_size, image_size), dtype=int) for direction in directions}
         self.val = None
+        self.evaluator = StateEvaluator(images)
 
     def get_lit_map(self, direction):
         return self.lit_maps[direction]
@@ -96,19 +131,20 @@ class State:
             step = self.get_step_random()
             should_accept = True
             for existine_step in steps:
-                if abs(existine_step["i"] - step["i"]) <= step_radios or abs(existine_step["j"] - step["j"]) <= step_radios:
+                if abs(existine_step["i"] - step["i"]) <= step_radios or abs(
+                        existine_step["j"] - step["j"]) <= step_radios:
                     should_accept = False
                     break
             if should_accept:
                 steps.append(step)
         return steps
 
-    def get_val(self, state_evaluator):
+    def get_val(self,):
         if self.val is not None:
             return self.val
         args = [(self.get_lit_map(direction), direction) for direction in directions]
-        self.val = sum(chain(starmap(state_evaluator.val_for_direction, args),
-                                      [state_evaluator.val_for_heightfield(self.heightfield)]))
+        self.val = sum(chain(starmap(self.evaluator.val_for_direction, args),
+                             [self.evaluator.val_for_heightfield(self.heightfield)]))
         return self.val
 
     def apply_step(self, step):
@@ -117,47 +153,12 @@ class State:
         self.val = None
 
 
-class StateEvaluator:
-    gradient_kernel = numpy.asarray([[0, 1, 0],
-                                          [1, -4, 1],
-                                          [0, 1, 0]])
-
-    gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
-                                          [4, 16, 26, 16, 4],
-                                          [7, 26, 41, 26, 7],
-                                          [4, 16, 26, 16, 4],
-                                          [1, 4, 7, 4, 1]]) / 273
-
-    gaus_grad_kernel = convolve2d(gaussian_kernel, gradient_kernel, mode="same")
-
-    def __init__(self, images):
-        self.images = images
-        self.edges = {direction: convolve2d(self.images[direction], self.gaus_grad_kernel, mode="same")
-                      for direction in directions}
-
-    def val_for_direction(self, lit_map, direction):
-        res = 0
-        res += StateEvaluator.norma(convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
-        res += StateEvaluator.norma(convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
-        return res
-
-    def val_for_heightfield(self, heightfield):
-        return StateEvaluator.norma(convolve2d(heightfield, self.gradient_kernel, mode="same")) * 0.001
-
-    @staticmethod
-    def norma(im1, im2=None):
-        if im2 is not None:
-            return numpy.sum((im1 - im2) ** 2)
-        return numpy.sum(im1 ** 2)
-
-
 def main():
     print("ShadowPix global nImages={}, directions={}, size={}px, concurrency={} nIterations={}".format(
         num_of_images, directions, image_size, is_concurrency, num_iterations))
 
     images = get_images()
-    state_evaluator = StateEvaluator(images)
-    final_state = my_optimize(state_evaluator, images)
+    final_state = my_optimize(images)
 
     save_res(final_state, images)
     create_stl_global(final_state.heightfield)
@@ -176,8 +177,8 @@ def parse_args():
     parser.add_argument('--concurrency', '-c', action='store_true',
                         help='should use concurrency optimization, default=False, not recommended on windows')
 
-    parser.add_argument('--nSteps', '-it', default=10 ** 6, type=int,
-                        help='max num of simulated_annealing steps, default=10 ** 6, each iteration has steps according to num of cores')
+    parser.add_argument('--nSteps', '-it', default=10 ** 7, type=int,
+                        help='max num of simulated_annealing steps, default=10 ** 7, each iteration has steps according to num of cores')
     parser.add_argument('--stopAfter', '-s', default=10000, type=int,
                         help='finish optimization if the global minimum candidate remains the same for this number of steps, default=10000')
     parser.add_argument('--tempIncline', '-t', default=10000, type=int,
@@ -223,34 +224,36 @@ def get_images():
     return images
 
 
-def is_step_accepted(state, step, state_evaluator, temp):
+def is_step_accepted(state, step, temp):
 
     candidate = state.copy()
     candidate.apply_step(step)
     if temp == 0:
-        return state.get_val(state_evaluator) > candidate.get_val(state_evaluator), step
+        return state.get_val() > candidate.get_val(), step
     else:
-        return random() <= exp((state.get_val(state_evaluator) - candidate.get_val(state_evaluator)) / temp), step
+        return random() <= exp((state.get_val() - candidate.get_val()) / temp), step
 
 
-def my_optimize(state_evaluator, images):
+def my_optimize(images):
     def callback(iteration_num, state, telemetry):
         if iteration_num % 1000 == 0:
             save_res(state, images)
             if is_verbose:
                 print(telemetry)
 
+    state = State(images)
+
     if is_concurrency:
         with Pool(processes=num_of_cores) as pool:
-            return simulated_annealing(state_evaluator, num_iterations, stop_after, State(), callback, pool, 1)
+            return simulated_annealing(num_iterations, stop_after, state, callback, pool, 1)
     else:
-        return simulated_annealing(state_evaluator, num_iterations, stop_after, State(), callback, None, 1)
+        return simulated_annealing(num_iterations, stop_after, state, callback, None, 1)
 
 
-def simulated_annealing(state_evaluator, niter, niter_success, state, callback, pool, initial_temperature):
+def simulated_annealing(niter, niter_success, state, callback, pool, initial_temperature):
 
-    def get_accepted_steps():
-        args = [(state, step, state_evaluator, temp) for step in candidate_steps]
+    def accept_and_apply_steps():
+        args = [(state, step, temp) for step in candidate_steps]
         copy = state.copy()
         iter = pool.starmap_async(is_step_accepted, args).get() if is_concurrency and pool is not None\
             else starmap(is_step_accepted, args)
@@ -269,8 +272,8 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
 
         if niter_success < min_time_at_top:
             print("could not fined better min for {} iterations. ".format(min_time_at_top))
-
             break
+
         elif temp_incline == initial_temperature and min_time_at_top == temp_incline_steps:
             temp_incline = initial_temperature/2
             min_time_at_top = 0
@@ -287,11 +290,11 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
         candidate_steps = state.get_steps(num_of_cores)
 
         take_step_time = time()
-        state = get_accepted_steps()
+        state = accept_and_apply_steps()
 
         get_accepted_steps_time = time()
 
-        if state.get_val(state_evaluator) < global_min_state.get_val(state_evaluator):
+        if state.get_val() < global_min_state.get_val():
             global_min_state = state
             min_time_at_top = 0
 
@@ -300,8 +303,8 @@ def simulated_annealing(state_evaluator, niter, niter_success, state, callback, 
 
         if is_verbose:
             print("iteration={} val={} min={} global_min_time={} temp={:.2f}".
-                  format(iteration_num, int(state.get_val(state_evaluator)),
-                         int(global_min_state.get_val(state_evaluator)), min_time_at_top, temp))
+                  format(iteration_num, int(state.get_val()),
+                         int(global_min_state.get_val()), min_time_at_top, temp))
 
         telemetry.update_messurment(start_iteration_time, take_step_time, get_accepted_steps_time, time())
 
