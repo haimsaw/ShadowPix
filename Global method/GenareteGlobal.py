@@ -1,5 +1,6 @@
+
 from shadowPixToStl import create_stl_global
-from math import radians, exp
+from math import radians, exp 
 from scipy.signal import convolve2d
 from random import randint, random
 from PIL import Image
@@ -34,14 +35,14 @@ class Telemetry:
 
 class StateEvaluator:
     gradient_kernel = numpy.asarray([[0, 1, 0],
-                                     [1, -4, 1],
-                                     [0, 1, 0]])
+                                          [1, -4, 1],
+                                          [0, 1, 0]])
 
     gaussian_kernel = numpy.asarray([[1, 4, 7, 4, 1],
-                                     [4, 16, 26, 16, 4],
-                                     [7, 26, 41, 26, 7],
-                                     [4, 16, 26, 16, 4],
-                                     [1, 4, 7, 4, 1]]) / 273
+                                          [4, 16, 26, 16, 4],
+                                          [7, 26, 41, 26, 7],
+                                          [4, 16, 26, 16, 4],
+                                          [1, 4, 7, 4, 1]]) / 273
 
     gaus_grad_kernel = convolve2d(gaussian_kernel, gradient_kernel, mode="same")
 
@@ -53,8 +54,7 @@ class StateEvaluator:
     def val_for_direction(self, lit_map, direction):
         res = 0
         res += StateEvaluator.norma(convolve2d(lit_map, self.gaussian_kernel, mode="same"), self.images[direction])
-        res += StateEvaluator.norma(convolve2d(lit_map, self.gaus_grad_kernel, mode="same"),
-                                    self.edges[direction]) * 1.5
+        res += StateEvaluator.norma(convolve2d(lit_map, self.gaus_grad_kernel, mode="same"), self.edges[direction]) * 1.5
         return res
 
     def val_for_heightfield(self, heightfield):
@@ -139,7 +139,7 @@ class State:
                 steps.append(step)
         return steps
 
-    def get_val(self, ):
+    def get_val(self,):
         if self.val is not None:
             return self.val
         args = [(self.get_lit_map(direction), direction) for direction in directions]
@@ -199,7 +199,8 @@ def parse_args():
 
 
 def save_res(state, images):
-    fig, axs = plt.subplots(nrows=num_of_images + 1, ncols=2, figsize=(10, 10),
+
+    fig, axs = plt.subplots(nrows=num_of_images+1, ncols=2, figsize=(10, 10),
                             subplot_kw={'xticks': [], 'yticks': []})
 
     for i in range(num_of_images):
@@ -224,6 +225,7 @@ def get_images():
 
 
 def is_step_accepted(state, step, temp):
+
     candidate = state.copy()
     candidate.apply_step(step)
     if temp == 0:
@@ -249,10 +251,11 @@ def my_optimize(images):
 
 
 def simulated_annealing(niter, niter_success, state, callback, pool, initial_temperature):
+
     def accept_and_apply_steps():
         args = [(state, step, temp) for step in candidate_steps]
         copy = state.copy()
-        iter = pool.starmap_async(is_step_accepted, args).get() if is_concurrency and pool is not None \
+        iter = pool.starmap_async(is_step_accepted, args).get() if is_concurrency and pool is not None\
             else starmap(is_step_accepted, args)
 
         for res, step in iter:
@@ -272,18 +275,18 @@ def simulated_annealing(niter, niter_success, state, callback, pool, initial_tem
             break
 
         elif temp_incline == initial_temperature and min_time_at_top == temp_incline_steps:
-            temp_incline = initial_temperature / 2
+            temp_incline = initial_temperature/2
             min_time_at_top = 0
             print("reducing temp incline to {}".format(temp_incline))
 
-        elif temp_incline == initial_temperature / 2 and min_time_at_top == temp_incline_steps:
+        elif temp_incline == initial_temperature/2 and min_time_at_top == temp_incline_steps:
             temp_incline = 0
             min_time_at_top = 0
             print("reducing temp incline to {}".format(temp_incline))
 
         start_iteration_time = time()
 
-        temp = (niter - iteration_num) / niter * temp_incline
+        temp = (niter - iteration_num)/niter*temp_incline
         candidate_steps = state.get_steps(num_of_cores)
 
         take_step_time = time()
@@ -313,3 +316,4 @@ parse_args()
 
 if __name__ == "__main__":
     main()
+
