@@ -190,7 +190,7 @@ def parse_args():
     image_size = args.nPixels
     num_of_images = args.nImages
     directions = ["+x", "+y", "-x", "-y"][:num_of_images]
-    light_angle = radians(args.lightAngle)  # pss this to stlr
+    light_angle = radians(args.lightAngle)
     is_concurrency = bool(args.concurrency)
     is_verbose = bool(args.verbose)
     stop_after = int(args.stopAfter / num_of_cores)
