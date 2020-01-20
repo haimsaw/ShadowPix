@@ -302,9 +302,9 @@ def simulated_annealing(niter, niter_success, state, callback, pool, initial_tem
             min_time_at_top += 1
 
         if is_verbose:
-            print("iteration={} val={} min={} global_min_time={} temp={:.2f}".
-                  format(iteration_num, int(state.get_val()),
-                         int(global_min_state.get_val()), min_time_at_top, temp))
+            print("iteration={} val={:.2f} min={:.2f} global_min_time={} temp={:.2f}".
+                  format(iteration_num, state.get_val(),
+                         global_min_state.get_val(), min_time_at_top, temp))
 
         telemetry.update_messurment(start_iteration_time, take_step_time, get_accepted_steps_time, time())
 
@@ -315,6 +315,5 @@ def simulated_annealing(niter, niter_success, state, callback, pool, initial_tem
 parse_args()
 
 if __name__ == "__main__":
-
     main()
 
